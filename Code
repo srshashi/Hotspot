@@ -1,0 +1,135 @@
+/* Compile using -std=gnu++11 because popen is not declared in std c++;
+    g++ -std=gnu++11 hotspot.cpp -o hotspot */
+
+#include <bits/stdc++.h>
+#include <dirent.h>
+#include <Windows.h>
+#include <memory>
+#include <stdexcept>
+#include <stdio.h>
+
+
+using namespace std;
+#define WLAN " wlan"
+#define SET " set"
+#define START " start"
+#define STOP " stop"
+#define SHOW " show"
+#define REFRESH " refresh"
+#define HN " hostednetwork"
+#define NETWORK_NAME "nowifi"
+#define PASSWORD "simplesimple"
+
+#define pb push_back
+
+vector<string> correctSettings(int argN, char *arg[]){
+    vector<string> a;
+    for(int i=1;i<argN;i++){
+       int l = strlen(arg[i]);
+       string s;
+       for(int j=0;j<l;j++) s += arg[i][j];
+       a.pb(s);
+    }
+
+    if(argN == 1){
+      a.pb("0");
+      a.pb(NETWORK_NAME);
+      a.pb(PASSWORD);
+    }else{
+        if(a[0] == "0"){
+            if(argN == 2) a.pb(NETWORK_NAME), a.pb(PASSWORD);
+            else if(argN == 3) a.pb(PASSWORD);
+        }else if(a[0] == "3"){
+            if(argN == 2) a.pb(PASSWORD);
+        }
+    }
+    return a;
+}
+
+vector<string> executeAndOutput(const char *command){
+    array<char,128> buffer;
+    vector<string> result;
+    shared_ptr<FILE> pipe(popen(command,"r"),pclose);
+    if(!pipe) throw runtime_error("unable to open popen()");
+    while(!feof(pipe.get())){
+        if(fgets(buffer.data(),128,pipe.get()) != nullptr) result.pb(buffer.data());
+    }
+    return result;
+}
+
+void enableHostedNetWork(){
+    string program = "wmic.exe";
+    string param = " nic get name,index,configmanagererrorCode";
+
+    vector<string> output = executeAndOutput((program + param).c_str());
+
+    string index,configManagerErrorCode;
+    //for(int i=0;i<output.size();i++) cout << output[i] << "\n";
+    int supported = 0;
+    for(int i=1;i<output.size();i++){
+        size_t found = output[i].find("Microsoft Hosted Network Virtual Adapter");
+        if(found != string :: npos){
+            supported = 1;
+            char *str = &output[i][0u];
+            char *token = strtok(str," ");
+            if(token != NULL) configManagerErrorCode = token;
+            token = strtok(NULL, " ");
+            if(token != NULL) index = token;
+            break;
+        }
+    }
+    string msg,title;
+    if(!supported){
+        msg = "Currently your machine doesn't support virtual hotspot creation.\nMay be drive is not updated or installed.";
+        title = "Error";
+        int ret = MessageBox(NULL,msg.c_str(),title.c_str(),MB_OK | MB_ICONSTOP);
+        if(ret == 1) exit(1);
+    }
+    else if(configManagerErrorCode == "22"){
+        //program = "wmic.exe";
+        //param = " path win32_networkadapter where index=" + index + " call enable";
+        msg = "Hotspot Virtual Adapter is Disabled. \nOpen it from, DeviceManager > NetworkAdapter > Microsoft Hosted Network Virtual Adapter > Enable device.";
+        msg += "\nClick Ok to open DeviceManager.Try again after enabling device.";
+        msg += "\n\nNote: May be setttingMicrosoft Hosted Network Virtual Adapter is hidden. Click on, view > show hidden devices";
+        title = "Open";
+        int ret = MessageBox(NULL,msg.c_str(),title.c_str(),MB_OKCANCEL | MB_ICONEXCLAMATION);
+        string s;
+        switch (ret) {
+          case 1: s = "devmgmt.msc";
+                  ShellExecute(NULL,"open",s.c_str(),NULL,NULL,SW_HIDE);
+          case 2: exit(0);
+                  break;
+        }
+    }
+}
+
+int main(int argN,char *arg[]){
+    vector<string> a = correctSettings(argN,arg);
+
+    DIR *folders = opendir("C:\\Windows\\System32");
+    struct dirent *entry;
+    while(entry = readdir(folders)){
+        string s = entry->d_name,s1;
+        if(s == "netsh.exe"){
+            int msg;
+            switch(a[0][0] - '0'){
+                case 0: s1 = string(WLAN) + SET + HN + " mode=allow" + " ssid=" + a[1] + " key=" + a[2];
+                        //executeAndOutput((s+s1).c_str());
+                        msg = (int)ShellExecute(NULL,"runas",s.c_str(),s1.c_str(),NULL,SW_HIDE);
+                case 1: enableHostedNetWork();
+                        s1 = string(WLAN) + START + HN;
+                          break;
+                case 2: s1 = string(WLAN) + STOP + HN;
+                          break;
+                case 3: s1 = string(WLAN) + REFRESH + HN + a[1];
+                          break;
+                case 4: s1 = string(WLAN) + SHOW + HN;
+                          break;
+            }
+            msg = (int)ShellExecute(NULL,"runas",s.c_str(),s1.c_str(),NULL,SW_HIDE);
+            cout << msg << "\n";
+        }
+    }
+    closedir(folders);
+    return 0;
+}
